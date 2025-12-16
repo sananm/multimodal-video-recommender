@@ -1,0 +1,24 @@
+[
+  {
+    "video_id": "test_001",
+    "video_path": "videos/test1.mp4",
+    "title": "How to cook pasta",
+    "description": "Easy pasta recipe for beginners",
+    "tags": [
+      "cooking",
+      "food",
+      "tutorial"
+    ]
+  },
+  {
+    "video_id": "test_002",
+    "video_path": "videos/test2.mp4",
+    "title": "Funny cat compilation",
+    "description": "Hilarious cat moments",
+    "tags": [
+      "cats",
+      "funny",
+      "animals"
+    ]
+  }
+]
