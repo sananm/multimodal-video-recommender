@@ -23,7 +23,7 @@ A content-based video recommendation system that combines visual, audio, and tex
 │                                                                         │
 │   Video Frames ──► ResNet-50 ──────┐                                    │
 │                                    │                                    │
-│   Audio Track ───► Wav2Vec2 ───────┼──► Gated Fusion ──► 512-d Embed   │
+│   Audio Track ───► Wav2Vec2 ───────┼──► Gated Fusion ──► 512-d Embed    │
 │                                    │                                    │
 │   Title Text ────► BERT ───────────┘                                    │
 │                                                                         │
