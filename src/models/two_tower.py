@@ -359,4 +359,4 @@ if __name__ == "__main__":
     print(f"   Top 5 similar videos: {indices.tolist()}")
     print(f"   Scores: {scores.tolist()}")
 
-    print("\n✓ Two-Tower Model working!")
+    print("\n[OK] Two-Tower Model working!")

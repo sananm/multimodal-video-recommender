@@ -213,4 +213,4 @@ if __name__ == "__main__":
         print(f"  titles: {[t[:30] + '...' for t in batch['title']]}")
         break
 
-    print("\n✓ MicroLens Dataset working!")
+    print("\n[OK] MicroLens Dataset working!")

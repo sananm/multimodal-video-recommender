@@ -1,239 +1,296 @@
-# Multimodal Short Video Recommender System
+# Multimodal Video Recommender
 
-A deep learning-based video recommendation system that uses multimodal embeddings (video, audio, and text) to recommend similar short videos. Built with PyTorch, HuggingFace Transformers, and FastAPI.
+A content-based video recommendation system that combines visual, audio, and text features using a two-tower neural network architecture. Trained with contrastive learning on the MicroLens-50K dataset.
 
-## Architecture Overview
+## Table of Contents
+
+- [Architecture](#architecture)
+- [How It Works](#how-it-works)
+- [Models](#models)
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+- [Training](#training)
+- [API](#api)
+- [Database](#database)
+- [Troubleshooting](#troubleshooting)
+- [References](#references)
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Two-Tower Architecture                        │
-├─────────────────────────────────┬───────────────────────────────────┤
-│          Query Tower            │         Candidate Tower           │
-│                                 │                                   │
-│  ┌─────────┐ ┌─────────┐ ┌────┐│  ┌─────────┐ ┌─────────┐ ┌────┐  │
-│  │ ResNet  │ │Wav2Vec2 │ │BERT││  │ ResNet  │ │Wav2Vec2 │ │BERT│  │
-│  │ (Video) │ │ (Audio) │ │Text││  │ (Video) │ │ (Audio) │ │Text│  │
-│  └────┬────┘ └────┬────┘ └──┬─┘│  └────┬────┘ └────┬────┘ └──┬─┘  │
-│       │           │         │  │       │           │         │     │
-│       └───────────┼─────────┘  │       └───────────┼─────────┘     │
-│                   │            │                   │               │
-│           ┌───────▼───────┐    │           ┌───────▼───────┐       │
-│           │  GatedFusion  │    │           │  GatedFusion  │       │
-│           └───────┬───────┘    │           └───────┬───────┘       │
-│                   │            │                   │               │
-│              512-d embed       │              512-d embed          │
-└──────────────────┬─────────────┴───────────────────┬───────────────┘
-                   │                                 │
-                   └──────── Cosine Similarity ──────┘
-                                    │
-                            Recommendation Score
+                            Two-Tower Architecture
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│   Video Frames ──► ResNet-50 ──────┐                                    │
+│                                    │                                    │
+│   Audio Track ───► Wav2Vec2 ───────┼──► Gated Fusion ──► 512-d Embed   │
+│                                    │                                    │
+│   Title Text ────► BERT ───────────┘                                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Query Video                              Candidate Videos
+     │                                         │
+     ▼                                         ▼
+┌─────────┐                              ┌─────────┐
+│  Tower  │                              │  Tower  │
+│(shared) │                              │(shared) │
+└────┬────┘                              └────┬────┘
+     │                                         │
+     ▼                                         ▼
+  512-d ──────────► Cosine Similarity ◄────── 512-d
+                           │
+                           ▼
+                   Recommendation Score
 ```
 
-## Features
+The two-tower design encodes videos independently, allowing precomputation of all candidate embeddings. At query time, we only need to encode the query video and compute dot products against the index.
 
-- **Multimodal Understanding**: Combines visual (CNN), audio (Wav2Vec2), and text (BERT) features
-- **Transfer Learning**: Leverages pretrained models from ImageNet, LibriSpeech, and Wikipedia
-- **Gated Fusion**: Learns optimal modality weights for each video
-- **Contrastive Learning**: InfoNCE loss with in-batch negatives
-- **GPU Support**: CUDA (NVIDIA), MPS (Apple Silicon), and CPU
-- **REST API**: FastAPI endpoints for indexing and recommendations
-- **Vector Database**: PostgreSQL with pgvector for similarity search
-- **Docker Support**: Containerized deployment with docker-compose
+## How It Works
 
-## Models Used
+### Feature Extraction
 
-| Component | Model | Pretrained On | Parameters |
-|-----------|-------|---------------|------------|
-| Video Encoder | ResNet-50 | ImageNet (1.4M images) | 23M |
-| Audio Encoder | Wav2Vec2 | LibriSpeech (960h audio) | 95M |
-| Text Encoder | BERT-base | Wikipedia + BookCorpus | 110M |
-| Fusion | GatedFusion | Trained from scratch | 3K |
-| **Total** | | | **~231M** (3M trainable) |
+Each video is processed through three specialized encoders:
+
+**Video Encoder (ResNet-50)**
+- Samples 8 frames uniformly from the video
+- Each frame passes through ResNet-50 pretrained on ImageNet
+- Frame features are mean-pooled temporally
+- Output: 512-dimensional visual embedding
+
+**Audio Encoder (Wav2Vec2)**
+- Extracts first 5 seconds of audio at 16kHz
+- Processes through Wav2Vec2 pretrained on LibriSpeech
+- Hidden states are mean-pooled across time
+- Output: 512-dimensional audio embedding
+
+**Text Encoder (BERT)**
+- Tokenizes video title using BERT tokenizer
+- Passes through BERT-base pretrained on Wikipedia/BookCorpus
+- Uses [CLS] token representation
+- Output: 512-dimensional text embedding
+
+### Multimodal Fusion
+
+The three modality embeddings are combined using Gated Fusion:
+
+```python
+# Learned gate weights determine modality importance
+gate_weights = softmax(W @ concat(video, audio, text))  # [3,]
+
+# Weighted combination
+fused = gate_weights[0] * video + gate_weights[1] * audio + gate_weights[2] * text
+```
+
+This allows the model to learn that music videos should weight audio heavily, while tutorials might weight text more.
+
+### Training
+
+The model is trained with InfoNCE contrastive loss:
+
+- Each batch contains N videos
+- Each video is paired with itself (positive) and N-1 others (negatives)
+- Loss pushes positive pairs together, negative pairs apart
+- Temperature parameter (0.07) controls distribution sharpness
+
+Only the fusion and projection layers are trained (~3M parameters). The pretrained encoders are frozen to leverage transfer learning and prevent overfitting.
+
+### Inference
+
+1. Precompute embeddings for all candidate videos
+2. Store embeddings in index (in-memory or PostgreSQL with pgvector)
+3. For a query video, compute its embedding
+4. Find top-K candidates by cosine similarity
+
+## Models
+
+| Component | Architecture | Pretrained On | Parameters | Trainable |
+|-----------|--------------|---------------|------------|-----------|
+| Video Encoder | ResNet-50 | ImageNet (1.4M images) | 23M | No |
+| Audio Encoder | Wav2Vec2-base | LibriSpeech (960h audio) | 95M | No |
+| Text Encoder | BERT-base | Wikipedia + BookCorpus | 110M | No |
+| Projection Layers | Linear | - | 3M | Yes |
+| Gated Fusion | MLP | - | 3K | Yes |
+| **Total** | | | **231M** | **3M** |
 
 ## Project Structure
 
 ```
 multimodal-video-recommender/
 ├── src/
-│   ├── features/           # Feature extractors
-│   │   ├── video_encoder.py    # ResNet-50 CNN for frames
-│   │   ├── audio_encoder.py    # Wav2Vec2 for audio
-│   │   └── text_encoder.py     # BERT for text
+│   ├── features/                    # Feature extractors
+│   │   ├── video_encoder.py         # ResNet-50 wrapper
+│   │   ├── audio_encoder.py         # Wav2Vec2 wrapper
+│   │   └── text_encoder.py          # BERT wrapper
 │   │
-│   ├── models/             # Model architectures
-│   │   ├── fusion.py           # Concat, Gated, Attention fusion
-│   │   └── two_tower.py        # Two-tower recommendation model
+│   ├── models/                      # Neural network architectures
+│   │   ├── fusion.py                # ConcatFusion, GatedFusion, AttentionFusion
+│   │   └── two_tower.py             # VideoTower, TwoTowerModel
 │   │
-│   ├── data/               # Data loading
-│   │   ├── processors.py       # Video/Audio preprocessing
-│   │   ├── dataset.py          # PyTorch Dataset class
-│   │   └── microlens_dataset.py # MicroLens dataset loader
+│   ├── data/                        # Data loading and processing
+│   │   ├── processors.py            # VideoProcessor, AudioProcessor
+│   │   ├── dataset.py               # Generic PyTorch Dataset
+│   │   └── microlens_dataset.py     # MicroLens-specific loader
 │   │
-│   ├── training/           # Training utilities
-│   │   ├── losses.py           # InfoNCE, Triplet, Contrastive
-│   │   └── trainer.py          # Training loop with checkpoints
+│   ├── training/                    # Training infrastructure
+│   │   ├── losses.py                # InfoNCE, TripletLoss, ContrastiveLoss
+│   │   └── trainer.py               # Training loop with checkpointing
 │   │
-│   ├── api/                # REST API
-│   │   ├── app.py              # FastAPI app (text-only demo)
-│   │   ├── app_v2.py           # FastAPI app (real video processing)
-│   │   └── schemas.py          # Pydantic schemas
+│   ├── api/                         # REST API
+│   │   ├── schemas.py               # Pydantic request/response models
+│   │   ├── app.py                   # v1: Demo with synthetic data
+│   │   ├── app_v2.py                # v2: Real videos, in-memory index
+│   │   └── app_v3.py                # v3: Real videos, PostgreSQL index
 │   │
-│   ├── db/                 # Database layer
-│   │   ├── config.py           # Database configuration
-│   │   ├── models.py           # SQLAlchemy models
-│   │   ├── database.py         # Connection management
-│   │   └── repository.py       # CRUD operations
+│   ├── db/                          # Database layer
+│   │   ├── config.py                # Connection configuration
+│   │   ├── models.py                # SQLAlchemy ORM models
+│   │   ├── database.py              # Session management
+│   │   └── repository.py            # CRUD operations, similarity search
 │   │
-│   └── utils/              # Utilities
-│       └── device.py           # CUDA/MPS/CPU device selection
+│   └── utils/
+│       └── device.py                # CUDA/MPS/CPU device selection
 │
 ├── scripts/
-│   ├── train_cloud.py      # Cloud training script
-│   ├── gcp_setup.sh        # GCP VM creation
-│   └── vm_setup.sh         # VM environment setup
+│   ├── train_cloud.py               # Training script with dataset download
+│   ├── gcp_setup.sh                 # GCP VM creation
+│   ├── vm_setup.sh                  # VM environment setup
+│   └── init_db.sql                  # PostgreSQL schema initialization
 │
 ├── data/
-│   └── raw/microlens/      # MicroLens dataset
+│   └── raw/microlens/               # Dataset directory
 │       ├── MicroLens-50k_titles.csv
 │       ├── MicroLens-50k_pairs.csv
 │       └── videos/
 │
-├── checkpoints/            # Saved model weights
-├── logs/                   # TensorBoard logs
-├── docker-compose.yml      # Docker services
-├── Dockerfile              # Container build
-└── requirements.txt        # Python dependencies
+├── checkpoints/                     # Saved model weights
+├── logs/                            # TensorBoard logs
+├── docker-compose.yml               # PostgreSQL + API services
+├── Dockerfile                       # Container build
+├── requirements.txt                 # Python dependencies
+├── .env.example                     # Environment template
+└── .gitignore
 ```
 
 ## Installation
 
-### Local Development
+### Prerequisites
+
+- Python 3.10+
+- ffmpeg (video/audio processing)
+- Docker (optional, for PostgreSQL)
+
+### Setup
 
 ```bash
-# Clone repository
-git clone https://github.com/YOUR_USERNAME/multimodal-video-recommender.git
+git clone https://github.com/sananm/multimodal-video-recommender.git
 cd multimodal-video-recommender
 
-# Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
+source venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
+```
 
-# Install system dependencies (Mac)
+### Download Pretrained Model
+
+Download the trained model from the GitHub release:
+
+```bash
+mkdir -p checkpoints
+curl -L -o checkpoints/best.pt \
+    https://github.com/sananm/multimodal-video-recommender/releases/download/v1.0.0/best.pt
+```
+
+Or download manually from the [Releases page](https://github.com/sananm/multimodal-video-recommender/releases).
+
+### System Dependencies
+
+macOS:
+```bash
 brew install ffmpeg
-
-# Install system dependencies (Ubuntu)
-sudo apt-get install ffmpeg libsndfile1 libgl1-mesa-glx
 ```
 
-### Docker Deployment
+Ubuntu:
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg libsndfile1 libgl1-mesa-glx libglib2.0-0
+```
+
+### Database Dependencies (optional)
 
 ```bash
-# Build and start services
-docker-compose up -d
-
-# Check status
-docker-compose ps
-
-# View logs
-docker-compose logs -f api
-```
-
-## Usage
-
-### Quick Start - API Server
-
-```bash
-# Start the API server
-cd src/api
-python -m uvicorn app_v2:app --reload --host 0.0.0.0 --port 8000
-```
-
-### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check and model status |
-| `/index/microlens` | POST | Index videos from MicroLens dataset |
-| `/index` | POST | Index a single video |
-| `/recommend` | POST | Get recommendations for a video |
-| `/index/list` | GET | List all indexed videos |
-
-### Example API Calls
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Index 10 videos from MicroLens
-curl -X POST http://localhost:8000/index/microlens \
-  -H "Content-Type: application/json" \
-  -d '{"max_videos": 10}'
-
-# Get recommendations
-curl -X POST http://localhost:8000/recommend \
-  -H "Content-Type: application/json" \
-  -d '{"video_id": "1002", "top_k": 5}'
-
-# List indexed videos
-curl http://localhost:8000/index/list
-```
-
-### Python SDK Usage
-
-```python
-from src.models.two_tower import TwoTowerModel
-from src.data.processors import VideoProcessor, AudioProcessor
-from src.utils.device import get_device
-import torch
-
-# Initialize
-device = get_device()  # Auto-selects CUDA/MPS/CPU
-model = TwoTowerModel(feature_dim=512).to(device)
-video_proc = VideoProcessor(num_frames=8)
-audio_proc = AudioProcessor(duration=5.0)
-
-# Process a video
-frames = video_proc.extract_frames("video.mp4")  # (8, 3, 224, 224)
-audio = audio_proc.extract_audio("video.mp4")    # (80000,)
-
-# Get embedding
-with torch.no_grad():
-    embedding = model.encode_video(
-        frames.unsqueeze(0).to(device),
-        audio.unsqueeze(0).to(device),
-        ["Video title"]
-    )  # (1, 512)
+pip install sqlalchemy psycopg2-binary pgvector python-dotenv
 ```
 
 ## Training
 
-### Local Training (CPU/MPS)
+### Local Training
+
+For development and testing on CPU or Apple Silicon:
 
 ```bash
-python scripts/train_cloud.py --epochs 5 --max_videos 100 --batch_size 4
+python scripts/train_cloud.py \
+    --epochs 5 \
+    --max_videos 100 \
+    --batch_size 4 \
+    --lr 0.0001
 ```
 
-### Cloud Training (GCP with GPU)
+### Cloud Training (GCP)
+
+For production training with GPU acceleration:
+
+**1. Create VM**
+
+- Go to Google Cloud Console > Compute Engine
+- Create instance:
+  - Machine type: n1-standard-4 (4 vCPU, 15GB RAM)
+  - GPU: NVIDIA T4 x 1
+  - Boot disk: Deep Learning VM with PyTorch (Ubuntu), 100GB SSD
+- Request GPU quota if needed (IAM & Admin > Quotas)
+
+**2. Setup Environment**
 
 ```bash
-# 1. Create GCP VM with T4 GPU
-bash scripts/gcp_setup.sh
+gcloud compute ssh YOUR_VM_NAME --zone=YOUR_ZONE
 
-# 2. SSH into VM
-gcloud compute ssh video-recommender-training --zone=us-east1-b
+sudo apt-get update
+sudo apt-get install -y ffmpeg libsndfile1 libgl1-mesa-glx libglib2.0-0
+pip3 install transformers librosa opencv-python pandas tqdm tensorboard
 
-# 3. Setup VM environment
-bash scripts/vm_setup.sh
+git clone https://github.com/sananm/multimodal-video-recommender.git
+cd multimodal-video-recommender
+```
 
-# 4. Run training
-python3 scripts/train_cloud.py --download --epochs 10 --max_videos 500
+**3. Run Training**
 
-# 5. Monitor with TensorBoard
-tensorboard --logdir=logs --port=6006 --bind_all
+```bash
+# Use tmux to persist session across disconnections
+tmux
+
+python3 scripts/train_cloud.py \
+    --download \
+    --epochs 10 \
+    --max_videos 500 \
+    --batch_size 8 \
+    --lr 0.00001
+
+# Detach: Ctrl+B, then D
+# Reattach: tmux attach
+```
+
+**4. Download Model**
+
+In GCP SSH browser: Settings (gear icon) > Download file
+```
+~/multimodal-video-recommender/checkpoints/best.pt
+```
+
+**5. Stop VM**
+
+```bash
+gcloud compute instances stop YOUR_VM_NAME --zone=YOUR_ZONE
 ```
 
 ### Training Arguments
@@ -241,103 +298,292 @@ tensorboard --logdir=logs --port=6006 --bind_all
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--epochs` | 10 | Number of training epochs |
-| `--batch_size` | 8 | Batch size |
-| `--lr` | 1e-4 | Learning rate |
-| `--max_videos` | 500 | Max videos to use |
+| `--batch_size` | 8 | Samples per batch |
+| `--lr` | 0.0001 | Learning rate |
+| `--max_videos` | 500 | Maximum videos to use |
 | `--download` | False | Download dataset first |
-| `--data_dir` | data/raw/microlens | Dataset directory |
+| `--data_dir` | data/raw/microlens | Dataset location |
 
-## Dataset
+### Cost Estimate
 
-This project uses the [MicroLens](https://recsys.westlake.edu.cn/MicroLens-Dataset/) dataset:
+| Resource | Cost |
+|----------|------|
+| NVIDIA T4 (n1-standard-4) | ~$0.40/hour |
+| 100GB SSD | ~$17/month |
+| Training 500 videos, 10 epochs | ~$0.50 total |
 
-- **50K version**: 50,000 short videos with titles
-- **Source**: Short video platform (TikTok-like)
-- **Contents**: Video files, titles, user interaction pairs
+## API
 
-### Dataset Structure
+### Running the Server
 
-```
-data/raw/microlens/
-├── MicroLens-50k_titles.csv    # video_id, title
-├── MicroLens-50k_pairs.csv     # user_id, video_id (interactions)
-└── videos/
-    ├── 1001.mp4
-    ├── 1002.mp4
-    └── ...
+**In-Memory Index (development)**
+
+```bash
+python3 -m uvicorn src.api.app_v2:app --host 0.0.0.0 --port 8000
 ```
 
-## Technical Details
+Data is lost on restart. Suitable for testing.
 
-### Video Processing Pipeline
+**PostgreSQL Index (production)**
 
-1. **Frame Extraction**: Sample 8 frames uniformly from video
-2. **Frame Resize**: Resize to 224x224 RGB
-3. **CNN Encoding**: ResNet-50 → 2048-d per frame
-4. **Temporal Pooling**: Mean pool across frames → 2048-d
-5. **Projection**: Linear layer → 512-d
+```bash
+# Start database
+docker-compose up -d db
 
-### Audio Processing Pipeline
+# Configure connection
+cp .env.example .env
 
-1. **Audio Extraction**: Extract audio track from video
-2. **Resampling**: Resample to 16kHz mono
-3. **Duration**: Take first 5 seconds (pad if shorter)
-4. **Wav2Vec2 Encoding**: → 768-d per timestep
-5. **Temporal Pooling**: Mean pool → 768-d
-6. **Projection**: Linear layer → 512-d
-
-### Text Processing Pipeline
-
-1. **Tokenization**: BERT WordPiece tokenizer
-2. **Encoding**: BERT → 768-d [CLS] embedding
-3. **Projection**: Linear layer → 512-d
-
-### Gated Fusion
-
-```python
-# Learnable gate weights
-gate = softmax([w_video, w_audio, w_text])
-
-# Weighted combination
-fused = gate[0] * video_emb + gate[1] * audio_emb + gate[2] * text_emb
+# Start API
+python3 -m uvicorn src.api.app_v3:app --host 0.0.0.0 --port 8000
 ```
 
-### Contrastive Learning (InfoNCE)
+Data persists across restarts. Suitable for production.
 
-```python
-# Similarity matrix
-sim = query_emb @ candidate_emb.T / temperature
+### Endpoints
 
-# InfoNCE loss (in-batch negatives)
-loss = CrossEntropy(sim, labels)  # labels = [0, 1, 2, ..., B-1]
+#### Health Check
+
+```bash
+curl http://localhost:8000/health
 ```
+
+```json
+{
+    "status": "ok",
+    "model_loaded": true,
+    "index_size": 10,
+    "device": "mps",
+    "storage": "postgresql"
+}
+```
+
+#### Index Videos
+
+```bash
+curl -X POST http://localhost:8000/index/microlens \
+    -H "Content-Type: application/json" \
+    -d '{"max_videos": 10}'
+```
+
+```json
+{
+    "indexed": 10,
+    "skipped": 0,
+    "total_in_index": 10,
+    "message": "Indexed 10 videos, skipped 0 (already in DB)"
+}
+```
+
+#### Get Recommendations
+
+```bash
+curl -X POST http://localhost:8000/recommend \
+    -H "Content-Type: application/json" \
+    -d '{"video_id": "1002", "top_k": 5}'
+```
+
+```json
+{
+    "query_video_id": "1002",
+    "query_title": "appropriate play meme brothers...",
+    "recommendations": [
+        {"video_id": "10037", "score": 0.9386, "title": "Originally I love you..."},
+        {"video_id": "10039", "score": 0.9321, "title": "this bizarre manipulation..."},
+        {"video_id": "10034", "score": 0.9290, "title": "demon water water..."},
+        {"video_id": "10036", "score": 0.9196, "title": "24 Hui Hui actually..."},
+        {"video_id": "10005", "score": 0.9185, "title": "you build my guess..."}
+    ]
+}
+```
+
+#### List Indexed Videos
+
+```bash
+curl http://localhost:8000/index/list
+```
+
+#### Index Single Video
+
+```bash
+curl -X POST http://localhost:8000/index \
+    -H "Content-Type: application/json" \
+    -d '{
+        "video_id": "custom_1",
+        "video_path": "/path/to/video.mp4",
+        "title": "My Video Title"
+    }'
+```
+
+#### Delete Video (v3 only)
+
+```bash
+curl -X DELETE http://localhost:8000/index/1002
+```
+
+## Database
+
+### Configuration
+
+Copy the example configuration:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5433
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password
+POSTGRES_DB=video_recommender
+```
+
+### Docker Commands
+
+```bash
+# Start PostgreSQL
+docker-compose up -d db
+
+# View logs
+docker-compose logs db
+
+# Stop (preserves data)
+docker-compose stop db
+
+# Stop and remove (preserves data volume)
+docker-compose down
+
+# Stop and delete all data
+docker-compose down -v
+```
+
+### Schema
+
+```sql
+CREATE TABLE videos (
+    id SERIAL PRIMARY KEY,
+    video_id VARCHAR(255) UNIQUE NOT NULL,
+    title TEXT,
+    description TEXT,
+    video_path TEXT,
+    tags TEXT[],
+    embedding vector(512),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ON videos USING ivfflat (embedding vector_cosine_ops);
+```
+
+### Similarity Search
+
+pgvector enables efficient approximate nearest neighbor search:
+
+```sql
+SELECT video_id, title, 1 - (embedding <=> query_embedding) AS similarity
+FROM videos
+WHERE embedding IS NOT NULL
+ORDER BY embedding <=> query_embedding
+LIMIT 10;
+```
+
+The `<=>` operator computes cosine distance. Subtracting from 1 converts to similarity.
 
 ## Device Support
 
-The system automatically selects the best available device:
+The system automatically selects the best available compute device:
 
 ```python
 from src.utils.device import get_device
 
-device = get_device()
-# Returns: cuda (NVIDIA GPU) > mps (Apple Silicon) > cpu
+device = get_device()  # Returns: cuda > mps > cpu
 ```
+
+| Device | Hardware | Notes |
+|--------|----------|-------|
+| cuda | NVIDIA GPU | Fastest training |
+| mps | Apple Silicon | M1/M2/M3 Macs |
+| cpu | Any | Slowest, but always available |
+
+## Dataset
+
+This project uses the [MicroLens-50K](https://recsys.westlake.edu.cn/MicroLens-Dataset/) dataset from Westlake University:
+
+- 50,000 short videos with titles
+- User interaction pairs (user_id, video_id, timestamp)
+- Videos are from a TikTok-style short video platform
+- Average video length: ~15 seconds
+
+The training script downloads videos automatically with the `--download` flag.
 
 ## Performance
 
-| Hardware | Batch Size | Videos/sec | Training Time (500 videos, 10 epochs) |
-|----------|------------|------------|--------------------------------------|
-| NVIDIA T4 | 8 | ~15 | ~1-2 hours |
-| Apple M1 Pro | 4 | ~5 | ~4-5 hours |
-| CPU (8 cores) | 2 | ~1 | ~15-20 hours |
+### Training Time
 
-## License
+| Hardware | 500 videos, 10 epochs |
+|----------|----------------------|
+| NVIDIA T4 | ~30 minutes |
+| Apple M1 Pro | ~2 hours |
+| CPU (8 cores) | ~8 hours |
 
-MIT License
+### Inference Latency
 
-## Acknowledgments
+| Operation | Time |
+|-----------|------|
+| Encode one video | ~200ms (MPS) |
+| Similarity search (1000 videos, in-memory) | <1ms |
+| Similarity search (1000 videos, pgvector) | ~5ms |
 
-- [MicroLens Dataset](https://recsys.westlake.edu.cn/MicroLens-Dataset/) - Westlake University
-- [HuggingFace Transformers](https://huggingface.co/transformers/) - BERT, Wav2Vec2
-- [PyTorch](https://pytorch.org/) - Deep learning framework
-- [FastAPI](https://fastapi.tiangolo.com/) - REST API framework
+## Troubleshooting
+
+### Port Already in Use
+
+```bash
+lsof -ti:8000 | xargs kill -9
+```
+
+### PostgreSQL Port Conflict
+
+If port 5432 is already in use (local PostgreSQL installation), the docker-compose.yml maps to port 5433. Update `.env` accordingly:
+
+```
+POSTGRES_PORT=5433
+```
+
+### Training Loss is NaN
+
+Lower the learning rate:
+
+```bash
+python3 scripts/train_cloud.py --lr 0.00001
+```
+
+### Partial File / Corrupted Video Warnings
+
+Some videos may be corrupted from incomplete downloads. Remove small files:
+
+```bash
+find data/raw/microlens/videos/ -name "*.mp4" -size -50k -delete
+```
+
+### GPU Not Detected on GCP
+
+Request GPU quota at: IAM & Admin > Quotas > Search "NVIDIA T4" > Request increase
+
+### SSL Certificate Errors (macOS)
+
+If pretrained model downloads fail, the API falls back to random initialization. For proper weights, install certificates:
+
+```bash
+/Applications/Python\ 3.11/Install\ Certificates.command
+```
+
+## References
+
+- Yi, X., et al. "Sampling-Bias-Corrected Neural Modeling for Large Corpus Item Recommendations." RecSys 2019. [Paper](https://dl.acm.org/doi/10.1145/3298689.3346996)
+- Chen, T., et al. "A Simple Framework for Contrastive Learning of Visual Representations." ICML 2020. [Paper](https://arxiv.org/abs/2002.05709)
+- MicroLens Dataset. Westlake University. [Website](https://recsys.westlake.edu.cn/MicroLens-Dataset/)
+- Devlin, J., et al. "BERT: Pre-training of Deep Bidirectional Transformers." NAACL 2019. [Paper](https://arxiv.org/abs/1810.04805)
+- Baevski, A., et al. "wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations." NeurIPS 2020. [Paper](https://arxiv.org/abs/2006.11477)

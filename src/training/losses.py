@@ -194,4 +194,4 @@ if __name__ == "__main__":
     loss = contrastive(anchor, positive)
     print(f"   Loss: {loss.item():.4f}")
 
-    print("\n✓ All loss functions working!")
+    print("\n[OK] All loss functions working!")

@@ -193,4 +193,4 @@ if __name__ == "__main__":
 
     print(f"Input: {len(test_texts)} text strings")
     print(f"Output shape: {output.shape}")  # (4, 512)
-    print("✓ TextEncoder working!")
+    print("[OK] TextEncoder working!")

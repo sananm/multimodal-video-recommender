@@ -1,0 +1,30 @@
+# Environment
+.env
+.env.local
+venv/
+__pycache__/
+*.pyc
+
+# Data (too large for git)
+data/raw/microlens/videos/
+*.mp4
+
+# Model checkpoints (too large)
+checkpoints/*.pt
+*.pt
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+postgres_data/

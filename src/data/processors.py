@@ -186,4 +186,4 @@ if __name__ == "__main__":
     # audio = audio_proc.extract_audio("path/to/video.mp4")
     # print(f"Audio shape: {audio.shape}")  # (80000,)
 
-    print("✓ Processors ready!")
+    print("[OK] Processors ready!")

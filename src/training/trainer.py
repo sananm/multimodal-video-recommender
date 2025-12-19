@@ -236,7 +236,7 @@ class Trainer:
         if is_best:
             path = self.checkpoint_dir / 'best.pt'
             torch.save(checkpoint, path)
-            print(f"  ✓ New best model saved (val_loss: {val_loss:.4f})")
+            print(f"  New best model saved (val_loss: {val_loss:.4f})")
 
         # Save periodic checkpoint
         if (epoch + 1) % 5 == 0:

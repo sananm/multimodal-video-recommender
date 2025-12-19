@@ -135,4 +135,4 @@ if __name__ == "__main__":
 
     print(f"Input shape: {dummy_videos.shape}")  # (4, 8, 3, 224, 224)
     print(f"Output shape: {output.shape}")  # (4, 512)
-    print("✓ VideoEncoder working!")
+    print("[OK] VideoEncoder working!")

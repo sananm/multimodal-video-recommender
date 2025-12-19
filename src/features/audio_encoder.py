@@ -135,4 +135,4 @@ if __name__ == "__main__":
 
     print(f"Input shape: {dummy_audio.shape}")   # (4, 16000)
     print(f"Output shape: {output.shape}")       # (4, 512)
-    print("✓ AudioEncoder working!")
+    print("[OK] AudioEncoder working!")

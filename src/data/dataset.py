@@ -251,4 +251,4 @@ if __name__ == "__main__":
     print(f"  frames shape: {item['frames'].shape}")
     print(f"  audio shape: {item['audio'].shape}")
 
-    print("\n✓ VideoDataset working!")
+    print("\n[OK] VideoDataset working!")

@@ -279,4 +279,4 @@ if __name__ == "__main__":
     print(f"   Input: 3 × (4, 512)")
     print(f"   Output: {output.shape}")  # (4, 512)
 
-    print("\n✓ All fusion modules working!")
+    print("\n[OK] All fusion modules working!")
