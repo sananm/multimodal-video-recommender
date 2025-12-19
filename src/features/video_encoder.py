@@ -39,15 +39,18 @@ class VideoEncoder(nn.Module):
         self.aggregation = aggregation
 
         # Load CNN backbone (removes final classification layer)
+        # Using new weights API (PyTorch 2.0+)
         if backbone == "resnet50":
-            base_model = models.resnet50(pretrained=pretrained)
+            weights = models.ResNet50_Weights.IMAGENET1K_V1 if pretrained else None
+            base_model = models.resnet50(weights=weights)
             # ResNet outputs 2048-d features before the FC layer
             backbone_dim = 2048
             # Remove the final FC layer - we only want features
             self.backbone = nn.Sequential(*list(base_model.children())[:-1])
 
         elif backbone == "resnet18":
-            base_model = models.resnet18(pretrained=pretrained)
+            weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
+            base_model = models.resnet18(weights=weights)
             backbone_dim = 512
             self.backbone = nn.Sequential(*list(base_model.children())[:-1])
 

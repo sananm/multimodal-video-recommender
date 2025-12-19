@@ -27,3 +27,15 @@ tensorboard>=2.13.0
 
 # Development
 jupyter>=1.0.0
+
+# API
+fastapi>=0.100.0
+uvicorn>=0.23.0  # ASGI server to run FastAPI
+python-multipart>=0.0.6  # For file uploads
+
+# Database
+sqlalchemy>=2.0.0  # ORM for database operations
+psycopg2-binary>=2.9.0  # PostgreSQL driver
+pgvector>=0.2.0  # Vector similarity search
+asyncpg>=0.28.0  # Async PostgreSQL driver
+python-dotenv>=1.0.0  # Environment variables

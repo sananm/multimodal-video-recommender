@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from processors import VideoProcessor, AudioProcessor
+from .processors import VideoProcessor, AudioProcessor
 
 
 class VideoDataset(Dataset):

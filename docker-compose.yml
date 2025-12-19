@@ -1,0 +1,71 @@
+# Docker Compose for Multimodal Video Recommender
+#
+# Services:
+# - api: FastAPI application
+# - db: PostgreSQL with pgvector
+#
+# Usage:
+#   docker-compose up        # Start all services
+#   docker-compose up -d     # Start in background
+#   docker-compose down      # Stop all services
+#   docker-compose logs api  # View API logs
+
+version: "3.8"
+
+services:
+  # ============ API Service ============
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev  # Use 'prod' for production
+    container_name: video-recommender-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Database connection
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=video_recommender
+      # Python settings
+      - PYTHONPATH=/app
+    volumes:
+      # Mount source code for hot reloading (dev only)
+      - .:/app
+      # Mount data directory
+      - ./data:/app/data
+      # Mount checkpoints
+      - ./checkpoints:/app/checkpoints
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============ Database Service ============
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: video-recommender-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=video_recommender
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+      # Initialization scripts
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+# ============ Volumes ============
+volumes:
+  postgres_data:
+    driver: local
