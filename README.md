@@ -282,7 +282,7 @@ python3 scripts/train_cloud.py \
 
 **4. Download Model**
 
-In GCP SSH browser: Settings (gear icon) > Download file
+In GCP SSH browser: Download file
 ```
 ~/multimodal-video-recommender/checkpoints/best.pt
 ```
