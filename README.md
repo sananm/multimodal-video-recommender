@@ -93,7 +93,7 @@ The model is trained with InfoNCE contrastive loss:
 - Loss pushes positive pairs together, negative pairs apart
 - Temperature parameter (0.07) controls distribution sharpness
 
-Only the fusion and projection layers are trained (~3M parameters). The pretrained encoders are frozen to leverage transfer learning and prevent overfitting.
+Only the fusion and projection layers are trained. The pretrained encoders are frozen to leverage transfer learning and prevent overfitting.
 
 ### Inference
 
@@ -106,12 +106,10 @@ Only the fusion and projection layers are trained (~3M parameters). The pretrain
 
 | Component | Architecture | Pretrained On | Parameters | Trainable |
 |-----------|--------------|---------------|------------|-----------|
-| Video Encoder | ResNet-50 | ImageNet (1.4M images) | 23M | No |
-| Audio Encoder | Wav2Vec2-base | LibriSpeech (960h audio) | 95M | No |
+| Video Encoder | ResNet-50 | ImageNet | 23M | No |
+| Audio Encoder | Wav2Vec2-base | LibriSpeech (960h) | 95M | No |
 | Text Encoder | BERT-base | Wikipedia + BookCorpus | 110M | No |
-| Projection Layers | Linear | - | 3M | Yes |
-| Gated Fusion | MLP | - | 3K | Yes |
-| **Total** | | | **231M** | **3M** |
+| Fusion + Projection | Gated Fusion + Linear | - | ~1M | Yes |
 
 ## Project Structure
 
@@ -303,7 +301,6 @@ gcloud compute instances stop YOUR_VM_NAME --zone=YOUR_ZONE
 | `--max_videos` | 500 | Maximum videos to use |
 | `--download` | False | Download dataset first |
 | `--data_dir` | data/raw/microlens | Dataset location |
-
 
 ## API
 
@@ -507,27 +504,8 @@ This project uses the [MicroLens-50K](https://recsys.westlake.edu.cn/MicroLens-D
 - 50,000 short videos with titles
 - User interaction pairs (user_id, video_id, timestamp)
 - Videos are from a TikTok-style short video platform
-- Average video length: ~15 seconds
 
 The training script downloads videos automatically with the `--download` flag.
-
-## Performance
-
-### Training Time
-
-| Hardware | 500 videos, 10 epochs |
-|----------|----------------------|
-| NVIDIA T4 | ~30 minutes |
-| Apple M1 Pro | ~2 hours |
-| CPU (8 cores) | ~8 hours |
-
-### Inference Latency
-
-| Operation | Time |
-|-----------|------|
-| Encode one video | ~200ms (MPS) |
-| Similarity search (1000 videos, in-memory) | <1ms |
-| Similarity search (1000 videos, pgvector) | ~5ms |
 
 ## Troubleshooting
 
