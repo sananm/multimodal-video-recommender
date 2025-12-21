@@ -539,10 +539,6 @@ Some videos may be corrupted from incomplete downloads. Remove small files:
 find data/raw/microlens/videos/ -name "*.mp4" -size -50k -delete
 ```
 
-### GPU Not Detected on GCP
-
-Request GPU quota at: IAM & Admin > Quotas > Search "NVIDIA T4" > Request increase
-
 ### SSL Certificate Errors (macOS)
 
 If pretrained model downloads fail, the API falls back to random initialization. For proper weights, install certificates:
