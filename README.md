@@ -136,9 +136,7 @@ multimodal-video-recommender/
 │   │
 │   ├── api/                         # REST API
 │   │   ├── schemas.py               # Pydantic request/response models
-│   │   ├── app.py                   # v1: Demo with synthetic data
-│   │   ├── app_v2.py                # v2: Real videos, in-memory index
-│   │   └── app_v3.py                # v3: Real videos, PostgreSQL index
+│   │   └── app.py                   # FastAPI server with PostgreSQL index
 │   │
 │   ├── db/                          # Database layer
 │   │   ├── config.py                # Connection configuration
@@ -306,16 +304,6 @@ gcloud compute instances stop YOUR_VM_NAME --zone=YOUR_ZONE
 
 ### Running the Server
 
-**In-Memory Index (development)**
-
-```bash
-python3 -m uvicorn src.api.app_v2:app --host 0.0.0.0 --port 8000
-```
-
-Data is lost on restart. Suitable for testing.
-
-**PostgreSQL Index (production)**
-
 ```bash
 # Start database
 docker-compose up -d db
@@ -324,10 +312,8 @@ docker-compose up -d db
 cp .env.example .env
 
 # Start API
-python3 -m uvicorn src.api.app_v3:app --host 0.0.0.0 --port 8000
+python3 -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 ```
-
-Data persists across restarts. Suitable for production.
 
 ### Endpoints
 
@@ -404,7 +390,7 @@ curl -X POST http://localhost:8000/index \
     }'
 ```
 
-#### Delete Video (v3 only)
+#### Delete Video
 
 ```bash
 curl -X DELETE http://localhost:8000/index/1002
