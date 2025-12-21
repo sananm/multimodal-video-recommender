@@ -304,13 +304,6 @@ gcloud compute instances stop YOUR_VM_NAME --zone=YOUR_ZONE
 | `--download` | False | Download dataset first |
 | `--data_dir` | data/raw/microlens | Dataset location |
 
-### Cost Estimate
-
-| Resource | Cost |
-|----------|------|
-| NVIDIA T4 (n1-standard-4) | ~$0.40/hour |
-| 100GB SSD | ~$17/month |
-| Training 500 videos, 10 epochs | ~$0.50 total |
 
 ## API
 
